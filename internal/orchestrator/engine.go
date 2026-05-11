@@ -72,10 +72,6 @@ func (e *Engine) Run(ctx context.Context) error {
 	logx.Infof("engine starting: %d wallet(s), core=%s, mode=%s",
 		e.Wallets.Count(), e.CoreBin, e.Cfg.Miner.Mode)
 
-	if err := e.waitForMiningOpen(ctx); err != nil {
-		return err
-	}
-
 	if err := e.pollState(ctx); err != nil {
 		return fmt.Errorf("initial state: %w", err)
 	}
@@ -110,29 +106,6 @@ func (e *Engine) Run(ctx context.Context) error {
 				e.retargetAll()
 			}
 			lastEpoch = ne
-		}
-	}
-}
-
-func (e *Engine) waitForMiningOpen(ctx context.Context) error {
-	interval := time.Duration(e.Cfg.Mining.StandByPollIntervalMs) * time.Millisecond
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		gs, err := e.Reader.GenesisState(ctx)
-		if err != nil {
-			logx.Warnf("genesisState: %v", err)
-		} else if gs.Complete {
-			logx.Infof("genesis complete, mining should be open")
-			return nil
-		} else {
-			logx.Infof("stand-by: genesis %s minted, %s remaining (~%s ETH raised)",
-				gs.Minted, gs.Remaining, gs.EthRaised)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
 		}
 	}
 }
