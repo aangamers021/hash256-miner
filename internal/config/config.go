@@ -27,6 +27,7 @@ type MinerConfig struct {
 
 type RPCConfig struct {
 	Endpoints        []string `toml:"endpoints"`
+	SubmitEndpoints  []string `toml:"submit_endpoints"`
 	ChainID          int64    `toml:"chain_id"`
 	RequestTimeoutMs int      `toml:"request_timeout_ms"`
 }

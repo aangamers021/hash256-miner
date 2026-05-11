@@ -12,12 +12,13 @@ import (
 )
 
 type Submitter struct {
-	Client     *Client
-	ABI        *Hash256ABI
-	ChainID    *big.Int
-	MinGas     uint64
-	MaxGas     uint64
-	SafetyMult float64
+	Client       *Client
+	SubmitClient *Client
+	ABI          *Hash256ABI
+	ChainID      *big.Int
+	MinGas       uint64
+	MaxGas       uint64
+	SafetyMult   float64
 }
 
 type SubmitParams struct {
@@ -28,14 +29,18 @@ type SubmitParams struct {
 	BumpFactor float64
 }
 
-func NewSubmitter(c *Client, a *Hash256ABI, chainID *big.Int, minGas, maxGas uint64, safetyMult float64) *Submitter {
+func NewSubmitter(c *Client, submit *Client, a *Hash256ABI, chainID *big.Int, minGas, maxGas uint64, safetyMult float64) *Submitter {
+	if submit == nil {
+		submit = c
+	}
 	return &Submitter{
-		Client:     c,
-		ABI:        a,
-		ChainID:    chainID,
-		MinGas:     minGas,
-		MaxGas:     maxGas,
-		SafetyMult: safetyMult,
+		Client:       c,
+		SubmitClient: submit,
+		ABI:          a,
+		ChainID:      chainID,
+		MinGas:       minGas,
+		MaxGas:       maxGas,
+		SafetyMult:   safetyMult,
 	}
 }
 
@@ -99,7 +104,7 @@ func (s *Submitter) SubmitMine(ctx context.Context, p SubmitParams) (common.Hash
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("sign: %w", err)
 	}
-	if err := s.Client.SendTransaction(ctx, signed); err != nil {
+	if err := s.SubmitClient.SendTransaction(ctx, signed); err != nil {
 		return common.Hash{}, fmt.Errorf("broadcast: %w", err)
 	}
 	return signed.Hash(), nil

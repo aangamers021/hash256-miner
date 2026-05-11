@@ -86,8 +86,16 @@ func runMineStart(parent context.Context, f mineFlags) error {
 	}
 	defer client.Close()
 
+	submitClient, err := buildSubmitClient(parent, cfg)
+	if err != nil {
+		return err
+	}
+	if submitClient != nil && submitClient != client {
+		defer submitClient.Close()
+	}
+
 	reader := chain.NewReader(client, abiObj)
-	submitter := chain.NewSubmitter(client, abiObj, client.ChainID(),
+	submitter := chain.NewSubmitter(client, submitClient, abiObj, client.ChainID(),
 		cfg.Mining.GasLimitFloor, cfg.Mining.GasLimitCeiling, cfg.Mining.GasLimitSafetyMult)
 
 	coreBin, err := resolveCoreBinary(cfg)
@@ -153,6 +161,23 @@ func buildChain(ctx context.Context, cfg *config.Config) (*chain.Client, *chain.
 		return nil, nil, fmt.Errorf("abi: %w", err)
 	}
 	return client, abiObj, nil
+}
+
+func buildSubmitClient(ctx context.Context, cfg *config.Config) (*chain.Client, error) {
+	if len(cfg.RPC.SubmitEndpoints) == 0 {
+		logx.Warnf("no private submit endpoints configured — using public mempool (mine() tx will lose builder races)")
+		return nil, nil
+	}
+	timeout := time.Duration(cfg.RPC.RequestTimeoutMs) * time.Millisecond
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
+	client, err := chain.NewSubmitOnlyClient(ctx, cfg.RPC.SubmitEndpoints, cfg.RPC.ChainID, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("submit rpc: %w", err)
+	}
+	logx.Infof("submit RPC: routing mine() through %d private endpoint(s)", len(cfg.RPC.SubmitEndpoints))
+	return client, nil
 }
 
 func resolveCoreBinary(cfg *config.Config) (string, error) {

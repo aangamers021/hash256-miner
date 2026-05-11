@@ -12,6 +12,10 @@ endpoints = [
   "https://eth.llamarpc.com",
   "https://rpc.ankr.com/eth",
 ]
+submit_endpoints = [
+  "https://rpc.mevblocker.io/fast",
+  "https://rpc.flashbots.net/fast",
+]
 chain_id = 1
 request_timeout_ms = 8000
 

@@ -17,9 +17,10 @@ import (
 )
 
 type Client struct {
-	endpoints []string
-	chainID   *big.Int
-	timeout   time.Duration
+	endpoints  []string
+	chainID    *big.Int
+	timeout    time.Duration
+	submitOnly bool
 
 	mu     sync.Mutex
 	idx    int32
@@ -37,6 +38,22 @@ func NewClient(ctx context.Context, endpoints []string, chainID int64, timeout t
 		timeout:   timeout,
 	}
 	if err := c.connect(ctx); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func NewSubmitOnlyClient(ctx context.Context, endpoints []string, chainID int64, timeout time.Duration) (*Client, error) {
+	if len(endpoints) == 0 {
+		return nil, fmt.Errorf("no submit RPC endpoints provided")
+	}
+	c := &Client{
+		endpoints: endpoints,
+		chainID:   big.NewInt(chainID),
+		timeout:   timeout,
+		submitOnly: true,
+	}
+	if err := c.connectSubmitOnly(ctx); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -92,12 +109,44 @@ func (c *Client) connect(ctx context.Context) error {
 	return fmt.Errorf("no usable RPC endpoint: %w", lastErr)
 }
 
+func (c *Client) connectSubmitOnly(ctx context.Context) error {
+	var lastErr error
+	for i := 0; i < len(c.endpoints); i++ {
+		idx := i % len(c.endpoints)
+		url := c.endpoints[idx]
+		dialCtx, cancel := context.WithTimeout(ctx, c.timeout)
+		r, err := rpc.DialContext(dialCtx, url)
+		cancel()
+		if err != nil {
+			lastErr = fmt.Errorf("dial %s: %w", url, err)
+			continue
+		}
+		ec := ethclient.NewClient(r)
+		c.mu.Lock()
+		if c.active != nil {
+			c.active.Close()
+		}
+		c.active = ec
+		c.rpcCli = r
+		atomic.StoreInt32(&c.idx, int32(idx))
+		c.mu.Unlock()
+		return nil
+	}
+	return fmt.Errorf("no usable submit endpoint: %w", lastErr)
+}
+
 func (c *Client) withClient(ctx context.Context, fn func(*ethclient.Client) error) error {
 	c.mu.Lock()
 	cli := c.active
 	c.mu.Unlock()
 	if cli == nil {
-		if err := c.connect(ctx); err != nil {
+		var err error
+		if c.submitOnly {
+			err = c.connectSubmitOnly(ctx)
+		} else {
+			err = c.connect(ctx)
+		}
+		if err != nil {
 			return err
 		}
 		c.mu.Lock()
@@ -107,7 +156,13 @@ func (c *Client) withClient(ctx context.Context, fn func(*ethclient.Client) erro
 	err := fn(cli)
 	if err != nil && shouldFailover(err) {
 		atomic.AddInt32(&c.idx, 1)
-		if rerr := c.connect(ctx); rerr != nil {
+		var rerr error
+		if c.submitOnly {
+			rerr = c.connectSubmitOnly(ctx)
+		} else {
+			rerr = c.connect(ctx)
+		}
+		if rerr != nil {
 			return fmt.Errorf("primary failed (%v) and reconnect failed: %w", err, rerr)
 		}
 		c.mu.Lock()

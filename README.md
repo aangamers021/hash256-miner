@@ -93,6 +93,39 @@ Because challenge is bound to `miner = msg.sender`, solutions cannot be stolen f
 
 ---
 
+## Private Orderflow (CRITICAL)
+
+Ethereum validators include transactions from private block-builder lanes (Flashbots, MEVBlocker, etc.) **ahead of public-mempool txs**. Public-mempool priority tips do NOT buy block placement against private orderflow — block builders ignore them.
+
+For HASH256 this matters because of the **10 mints/block global cap**: if 10 mine() txs come through private lanes, your public-mempool tx reverts with `BlockCapReached` and you still pay gas.
+
+This miner routes all `mine()` submissions through private RPCs while keeping reads on public endpoints:
+
+```toml
+[rpc]
+endpoints = [
+  "https://ethereum-rpc.publicnode.com",
+  "https://eth.llamarpc.com",
+  "https://rpc.ankr.com/eth",
+]
+submit_endpoints = [
+  "https://rpc.mevblocker.io/fast",
+  "https://rpc.flashbots.net/fast",
+]
+```
+
+Supported out of the box:
+- **Flashbots Protect** `https://rpc.flashbots.net/fast` — fastest builder inclusion path
+- **MEVBlocker Fast** `https://rpc.mevblocker.io/fast` — alternative builder network
+
+These only accept `eth_sendRawTransaction` (and a few MEV-specific methods). The miner handles this — reads always go to the public pool.
+
+If you leave `submit_endpoints` empty, you'll get a loud warning and fall back to public mempool (you will lose races).
+
+---
+
+
+
 ## Quick start
 
 ### Prerequisites
