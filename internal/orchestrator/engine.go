@@ -42,10 +42,13 @@ type Engine struct {
 }
 
 type workerSlot struct {
-	Account    *wallet.Account
-	Worker     *Worker
-	ActiveMode WorkerMode
-	LastStart  time.Time
+	Account       *wallet.Account
+	Worker        *Worker
+	ActiveMode    WorkerMode
+	LastStart     time.Time
+	LastHashrate  atomic.Uint64
+	LastHashes    atomic.Uint64
+	LastElapsedMs atomic.Uint64
 }
 
 func NewEngine(
@@ -85,12 +88,17 @@ func (e *Engine) Run(ctx context.Context) error {
 	pollTicker := time.NewTicker(time.Duration(e.Cfg.Mining.PollIntervalMs) * time.Millisecond)
 	defer pollTicker.Stop()
 
+	statsTicker := time.NewTicker(10 * time.Second)
+	defer statsTicker.Stop()
+
 	lastEpoch := e.currentEpoch()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-statsTicker.C:
+			e.logHashrate()
 		case <-pollTicker.C:
 			if err := e.pollState(ctx); err != nil {
 				logx.Warnf("poll state: %v", err)
@@ -301,6 +309,7 @@ func (e *Engine) handleWorkerEvents(ctx context.Context, acc *wallet.Account, w 
 		case "progress":
 			e.hashrateAcc.Store(uint64(ev.Hashrate))
 			e.hashesAcc.Store(ev.Hashes)
+			e.updateWorkerStats(acc, ev.Hashrate, ev.Hashes, ev.ElapsedMs)
 		case "found":
 			logx.Infof("found[%s] hashes=%d elapsed=%dms nonce=%s",
 				shortAddr(acc.Address), ev.Hashes, ev.ElapsedMs, shortHash(ev.Nonce))
@@ -312,6 +321,88 @@ func (e *Engine) handleWorkerEvents(ctx context.Context, acc *wallet.Account, w 
 		case "error":
 			logx.Errorf("worker[%s] error: %s", shortAddr(acc.Address), ev.Message)
 		}
+	}
+}
+
+func (e *Engine) updateWorkerStats(acc *wallet.Account, hashrate float64, hashes uint64, elapsedMs uint64) {
+	e.workersMu.Lock()
+	defer e.workersMu.Unlock()
+	for _, s := range e.workers {
+		if s.Account == acc {
+			s.LastHashrate.Store(uint64(hashrate))
+			s.LastHashes.Store(hashes)
+			s.LastElapsedMs.Store(elapsedMs)
+			return
+		}
+	}
+}
+
+func (e *Engine) logHashrate() {
+	e.workersMu.Lock()
+	defer e.workersMu.Unlock()
+	if len(e.workers) == 0 {
+		return
+	}
+	var totalRate, totalHashes uint64
+	diff := e.getDifficulty()
+	for _, s := range e.workers {
+		totalRate += s.LastHashrate.Load()
+		totalHashes += s.LastHashes.Load()
+	}
+	rateStr := humanizeHashrate(float64(totalRate))
+	etaStr := estimateETA(float64(totalRate), diff)
+	if len(e.workers) == 1 {
+		logx.Infof("hashrate=%s hashes=%s eta/hit~%s", rateStr, humanizeCount(totalHashes), etaStr)
+	} else {
+		logx.Infof("hashrate=%s (%d workers) hashes=%s eta/hit~%s",
+			rateStr, len(e.workers), humanizeCount(totalHashes), etaStr)
+	}
+}
+
+func humanizeHashrate(h float64) string {
+	switch {
+	case h >= 1e9:
+		return fmt.Sprintf("%.2f GH/s", h/1e9)
+	case h >= 1e6:
+		return fmt.Sprintf("%.2f MH/s", h/1e6)
+	case h >= 1e3:
+		return fmt.Sprintf("%.2f kH/s", h/1e3)
+	default:
+		return fmt.Sprintf("%.0f H/s", h)
+	}
+}
+
+func humanizeCount(n uint64) string {
+	f := float64(n)
+	switch {
+	case f >= 1e9:
+		return fmt.Sprintf("%.2fB", f/1e9)
+	case f >= 1e6:
+		return fmt.Sprintf("%.2fM", f/1e6)
+	case f >= 1e3:
+		return fmt.Sprintf("%.2fk", f/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+func estimateETA(hashrate float64, difficulty *big.Int) string {
+	if hashrate <= 0 || difficulty == nil || difficulty.Sign() == 0 {
+		return "—"
+	}
+	maxU := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	expected := new(big.Int).Div(maxU, difficulty)
+	exp, _ := new(big.Float).SetInt(expected).Float64()
+	secs := exp / hashrate
+	switch {
+	case secs < 60:
+		return fmt.Sprintf("%.0fs", secs)
+	case secs < 3600:
+		return fmt.Sprintf("%.1fm", secs/60)
+	case secs < 86400:
+		return fmt.Sprintf("%.1fh", secs/3600)
+	default:
+		return fmt.Sprintf("%.1fd", secs/86400)
 	}
 }
 
