@@ -1,0 +1,38 @@
+[miner]
+mode = "auto"
+data_dir = "./data"
+cpu_threads = 0
+gpu_devices = []
+batch_size = 1048576
+core_binary = ""
+
+[rpc]
+endpoints = [
+  "https://ethereum-rpc.publicnode.com",
+  "https://eth.llamarpc.com",
+  "https://rpc.ankr.com/eth",
+]
+chain_id = 1
+request_timeout_ms = 8000
+
+[contract]
+address = "0xAC7b5d06fa1e77D08aea40d46cB7C5923A87A0cc"
+
+[wallet]
+mode = "single"
+keystore = "./data/wallets/main.json"
+passphrase_env = ""
+passphrase_file = ""
+mnemonic_file = "./data/wallets/mnemonic.enc"
+accounts = 5
+
+[mining]
+poll_interval_ms = 9000
+submit_strategy = "eip1559"
+max_priority_fee_gwei = 3.0
+priority_fee_bump_near_cap = 2.5
+gas_limit_floor = 200000
+gas_limit_ceiling = 450000
+gas_limit_safety_mult = 1.5
+verify_before_submit = true
+stand_by_poll_interval_ms = 30000

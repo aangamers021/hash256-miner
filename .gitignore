@@ -1,0 +1,32 @@
+# binaries
+bin/
+dist/
+*.exe
+*.test
+*.out
+
+# wallet data (NEVER commit)
+data/wallets/*
+!data/wallets/.gitkeep
+
+# local config overrides
+configs/*.local.toml
+
+# go
+vendor/
+.go-build-cache/
+
+# rust
+miner-core/target/
+**/*.rs.bk
+
+# editor / os
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# logs
+*.log
+logs/
